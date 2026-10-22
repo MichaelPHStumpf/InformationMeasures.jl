@@ -1,39 +1,42 @@
-# Test discretization functions
+@testset "Discretization" begin
+	rng = MersenneTwister(42)
+	arr = rand(rng, 100)
 
-arr = rand(100)
+	@testset "dimensions" begin
+		@test size(discretize_values(arr)) == (10, 1)
+		@test size(discretize_values(arr, arr)) == (10, 10)
+		@test size(discretize_values(arr, arr, arr)) == (10, 10, 10)
+		@test size(discretize_values(arr, arr, arr, arr)) == (10, 10, 10, 10)
+	end
 
-# Test with 1 values array
-@test size(discretize_values(arr)) == (10, 1)
-println("Discretize values with 1 array passed.")
+	@testset "modes" begin
+		@test size(discretize_values(arr, mode = "uniform_width")) == (10, 1)
+		@test size(discretize_values(arr, mode = "uniform_count")) == (10, 1)
+		@test size(discretize_values(arr, mode = "binarize")) == (2, 1)
+		@test size(discretize_values(arr, mode = "bayesian_blocks"))[1] >= 1
+	end
 
-# Test with 2 values arrays
-@test size(discretize_values(arr, arr)) == (10, 10)
-println("Discretize values with 2 arrays passed.")
+	@testset "number of bins" begin
+		@test size(discretize_values(arr, number_of_bins = 5)) == (5, 1)
+		@test size(discretize_values(arr, get_number_of_bins = values -> 2)) == (2, 1)
+	end
 
-# Test with 3 values arrays
-@test size(discretize_values(arr, arr, arr)) == (10, 10, 10)
-println("Discretize values with 3 arrays passed.")
+	@testset "constant values" begin
+		freqs = discretize_values(fill(3.0, 10))
+		@test size(freqs) == (1, 1)
+		@test freqs[1] == 10
+		@test size(discretize_values(fill(3.0, 10), fill(5.0, 10))) == (1, 1)
+	end
 
-# Test with 4 values arrays
-@test size(discretize_values(arr, arr, arr, arr)) == (10, 10, 10, 10)
-println("Discretize values with >3 arrays passed.")
+	@testset "bin ids fallback" begin
+		# Data that breaks uniform_count (repeated quantile values) must not
+		# produce zero bin ids (the pre-0.4 fallback bug).
+		pathological = vcat(fill(1.0, 50), fill(2.0, 45), fill(3.0, 5))
+		freqs = discretize_values(pathological, mode = "uniform_count")
+		@test sum(freqs) == length(pathological)
+	end
 
-# Test with uniform_width
-@test size(discretize_values(arr, mode = "uniform_width")) == (10, 1)
-println("Discretize values with uniform width passed.")
-
-# Test with uniform_count
-@test size(discretize_values(arr, mode = "uniform_count")) == (10, 1)
-println("Discretize values with uniform count passed.")
-
-# Test with bayesian_blocks
-# @test size(discretize_values(arr, mode = "bayesian_blocks")) == (10, 1)
-# println("Discretize values with Bayesian blocks passed.")
-
-# Test with number_of_bins
-@test size(discretize_values(arr, number_of_bins = 5)) == (5, 1)
-println("Discretize values with number of bins passed.")
-
-# Test with get_number_of_bins
-@test size(discretize_values(arr, get_number_of_bins = function(values) return 2 end)) == (2, 1)
-println("Discretize values with get number of bins passed.")
+	@testset "errors" begin
+		@test_throws ArgumentError discretize_values(arr, mode = "not_a_mode")
+	end
+end

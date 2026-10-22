@@ -1,16 +1,17 @@
 name = "InformationMeasures"
 uuid = "96684042-fbdc-5399-9b8e-d34e539a126c"
-version = "0.3.1"
+version = "0.4.0"
 
 [deps]
 Discretizers = "6e83dbb3-75ca-525b-8ae2-3751f0dd50b4"
 
 [compat]
 Discretizers = "3"
-julia = "0.7, 1"
+julia = "1.6"
 
 [extras]
+Random = "9a3f8284-90cf-11e3-45c2-8d835600b5d3"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test"]
+test = ["Random", "Test"]

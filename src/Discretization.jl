@@ -117,22 +117,21 @@ function get_bin_ids!(values_x, mode, number_of_bins, bin_ids)
 	elseif mode == "uniform_count"
 		try
 			bin_ids[1:end] = encode(LinearDiscretizer(binedges(DiscretizeUniformCount(number_of_bins), reshape(values_x, length(values_x)))), values_x)
-		catch
-			bin_ids = encode(LinearDiscretizer(binedges(DiscretizeUniformWidth(number_of_bins), values_x)), values_x)
-			println("Uniform count failed, fell back to uniform width")
+		catch e
+			@warn "Uniform count failed ($e), falling back to uniform width"
+			bin_ids[1:end] = encode(LinearDiscretizer(binedges(DiscretizeUniformWidth(number_of_bins), values_x)), values_x)
 		end
 	elseif mode == "bayesian_blocks"
 		try
 			edges = binedges(DiscretizeBayesianBlocks(), values_x)
 			bin_ids[1:end] = encode(LinearDiscretizer(edges), values_x)
 			number_of_bins = length(edges) - 1
-		catch
+		catch e
+			@warn "Bayesian blocks failed ($e), falling back to uniform width"
 			bin_ids[1:end] = encode(LinearDiscretizer(binedges(DiscretizeUniformWidth(number_of_bins), values_x)), values_x)
-			println("Bayesian blocks failed, fell back to uniform width")
 		end
 	else
-		println("Mode doesn't exist, fell back to uniform width")
-		bin_ids[1:end] = encode(LinearDiscretizer(binedges(DiscretizeUniformWidth(number_of_bins), values_x)), values_x)
+		throw(ArgumentError("Mode \"$mode\" does not exist. It must be one of \"uniform_width\", \"uniform_count\", \"binarize\" or \"bayesian_blocks\"."))
 	end
 
 	return number_of_bins

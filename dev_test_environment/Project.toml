@@ -1,0 +1,5 @@
+[deps]
+InformationMeasures = "96684042-fbdc-5399-9b8e-d34e539a126c"
+
+[sources]
+InformationMeasures = {path = "/workspace/github__Tchanders__InformationMeasures.jl"}
