@@ -3,6 +3,16 @@
 # maximum speed, it may be better to use the functions from Formulae.jl directly.
 
 export discretize_values,
+	probabilities,
+	entropy,
+	conditional_entropy,
+	mutual_information,
+	conditional_mutual_information,
+	total_correlation,
+	interaction_information,
+	partial_information_decomposition,
+	redundancy,
+	cross_entropy,
 	get_probabilities,
 	get_entropy,
 	get_conditional_entropy,
@@ -38,34 +48,36 @@ function discretize_values(values_x...; mode = "uniform_width", number_of_bins =
 end
 
 """
-    get_probabilities(estimator, frequencies; <keyword arguments>)
+    probabilities(estimator, frequencies; <keyword arguments>)
 
 Estimate probabilities from a set of discrete values.
 
 # Arguments
 * `estimator`: the entropy estimator.
 * `frequencies`: the bin frequencies for the discretized data values.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Array of length `n`, where `n` is the number of bins, containing the probabilities for each bin.
 """
-function get_probabilities(estimator, frequencies; lambda = nothing, prior = 1)
+function probabilities(estimator, frequencies; lambda = nothing, prior = 1)
 
 	if estimator == "maximum_likelihood" || estimator == "miller_madow"
-		probabilities = get_probabilities_maximum_likelihood(frequencies)
+		estimated_probabilities = get_probabilities_maximum_likelihood(frequencies)
 	elseif estimator == "shrinkage"
-		probabilities = get_probabilities_shrinkage(frequencies, lambda)
+		estimated_probabilities = get_probabilities_shrinkage(frequencies, lambda)
 	elseif estimator == "dirichlet"
-		probabilities = get_probabilities_dirichlet(frequencies, prior)
+		estimated_probabilities = get_probabilities_dirichlet(frequencies, prior)
+	else
+		throw(ArgumentError("Estimator \"$estimator\" does not exist. It must be one of \"maximum_likelihood\", \"miller_madow\", \"shrinkage\" or \"dirichlet\"."))
 	end
 
-	return probabilities
+	return estimated_probabilities
 end
 
 """
-    get_entropy(values_x; <keyword arguments>)
+    entropy(values_x...; <keyword arguments>)
 
 Estimate entropy (or joint entropy, if more than one set of data values is given).
 
@@ -77,13 +89,13 @@ Estimate entropy (or joint entropy, if more than one set of data values is given
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
 * `discretized=false`: whether the data values are already discretized.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the joint entropy of the inputs.
 """
-function get_entropy(values_x...; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
+function entropy(values_x...; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
 	get_number_of_bins = get_root_n, discretized = false, lambda = nothing, prior = 1)
 
 	# If discretized, values_x should be one array of frequencies
@@ -94,20 +106,20 @@ function get_entropy(values_x...; estimator = "maximum_likelihood", base = 2, mo
 		values_x[1] :
 		discretize_values(values_x..., mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	probabilities = get_probabilities(estimator, frequencies, lambda = lambda, prior = prior)
+	estimated_probabilities = probabilities(estimator, frequencies, lambda = lambda, prior = prior)
 
-	entropy = apply_entropy_formula(probabilities, base)
+	estimated_entropy = apply_entropy_formula(estimated_probabilities, base)
 
 	if estimator == "miller_madow"
-		entropy += (count(!iszero, probabilities) - 1) / (2 * length(values_x[1]))
+		estimated_entropy += (count(!iszero, estimated_probabilities) - 1) / (2 * sum(frequencies))
 	end
 
 	# Make sure we don't return -0.0
-	return entropy + 0.0
+	return estimated_entropy + 0.0
 end
 
 """
-    get_conditional_entropy(values_x, values_y; <keyword arguments>)
+    conditional_entropy(values_x, values_y; <keyword arguments>)
 
 Estimate conditional entropy of one set of values conditioned on another set of values.
 
@@ -119,52 +131,54 @@ Estimate conditional entropy of one set of values conditioned on another set of 
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
-Float representing the joint entropy of `x` conditioned on `y`.
+Float representing the entropy of `x` conditioned on `y`.
 """
-function get_conditional_entropy(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
+function conditional_entropy(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
 	number_of_bins = 0, get_number_of_bins = get_root_n, lambda = nothing, prior = 1)
 
 	frequencies_xy = discretize_values(values_x, values_y, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_conditional_entropy(frequencies_xy; estimator = estimator, base = base, lambda = lambda, prior = prior)
+	return conditional_entropy(frequencies_xy; estimator = estimator, base = base, lambda = lambda, prior = prior)
 end
 """
-    get_conditional_entropy(xy; <keyword arguments>)
+    conditional_entropy(xy; <keyword arguments>)
 
 # Arguments
 * `xy`: the 2D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xy` is probabilities. If `false`, `xy` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
-Float representing the joint entropy of `x` conditioned on `y`.
+Float representing the entropy of `x` conditioned on `y`.
 """
-function get_conditional_entropy(xy; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
+function conditional_entropy(xy; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
 
-	probabilities_xy = probabilities ? xy : get_probabilities(estimator, xy, lambda = lambda, prior = prior)
-	probabilities_y = sum(probabilities_xy, dims = 2)
+	probabilities_xy = probabilities ? xy : InformationMeasures.probabilities(estimator, xy, lambda = lambda, prior = prior)
+	probabilities_y = sum(probabilities_xy, dims = 1)
 
 	entropy_xy = apply_entropy_formula(probabilities_xy, base)
 	entropy_y = apply_entropy_formula(probabilities_y, base)
 
-	# TODO: either deprecate or add warning about inappropriate use
-	if estimator == "miller_madow"
-		entropy_xy += (count(!iszero, probabilities_xy) - 1) / (2 * length(probabilities_xy))
-		entropy_y += (count(!iszero, probabilities_y) - 1) / (2 * length(probabilities_y))
+	if estimator == "miller_madow" && !probabilities
+		n = sum(xy)
+		entropy_xy += (count(!iszero, probabilities_xy) - 1) / (2 * n)
+		entropy_y += (count(!iszero, probabilities_y) - 1) / (2 * n)
+	elseif estimator == "miller_madow"
+		@warn "Miller-Madow correction cannot be applied to probabilities (sample size unknown). The calculation was performed without applying the correction."
 	end
 
 	return apply_conditional_entropy_formula(entropy_xy, entropy_y)
 end
 
 """
-    get_mutual_information(values_x, values_y; <keyword arguments>)
+    mutual_information(values_x, values_y; <keyword arguments>)
 
 Estimate the mutual information between two sets of values.
 
@@ -176,55 +190,57 @@ Estimate the mutual information between two sets of values.
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the mutual information of `x` and `y`.
 """
-function get_mutual_information(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
+function mutual_information(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
 	number_of_bins = 0, get_number_of_bins = get_root_n, lambda = nothing, prior = 1)
 
 	frequencies_xy = discretize_values(values_x, values_y, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_mutual_information(frequencies_xy; estimator = estimator, base = base, lambda = lambda, prior = prior)
+	return mutual_information(frequencies_xy; estimator = estimator, base = base, lambda = lambda, prior = prior)
 end
 """
-    get_mutual_information(xy; <keyword arguments>)
+    mutual_information(xy; <keyword arguments>)
 
 # Arguments
 * `xy`: the 2D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xy` is probabilities. If `false`, `xy` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the mutual information of `x` and `y`.
 """
-function get_mutual_information(xy; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
+function mutual_information(xy; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
 
-	probabilities_xy = probabilities ? xy : get_probabilities(estimator, xy, lambda = lambda, prior = prior)
-	probabilities_x = sum(probabilities_xy, dims = 1)
-	probabilities_y = sum(probabilities_xy, dims = 2)
+	probabilities_xy = probabilities ? xy : InformationMeasures.probabilities(estimator, xy, lambda = lambda, prior = prior)
+	probabilities_x = sum(probabilities_xy, dims = 2)
+	probabilities_y = sum(probabilities_xy, dims = 1)
 
-	# TODO: either deprecate or add warning about inappropriate use
-	if estimator == "miller_madow"
+	if estimator == "miller_madow" && !probabilities
+		n = sum(xy)
 		entropy_xy = apply_entropy_formula(probabilities_xy, base)
 		entropy_x = apply_entropy_formula(probabilities_x, base)
 		entropy_y = apply_entropy_formula(probabilities_y, base)
-		entropy_xy += (count(!iszero, probabilities_xy) - 1) / (2 * length(probabilities_xy))
-		entropy_x += (count(!iszero, probabilities_x) - 1) / (2 * length(probabilities_x))
-		entropy_y += (count(!iszero, probabilities_y) - 1) / (2 * length(probabilities_y))
+		entropy_xy += (count(!iszero, probabilities_xy) - 1) / (2 * n)
+		entropy_x += (count(!iszero, probabilities_x) - 1) / (2 * n)
+		entropy_y += (count(!iszero, probabilities_y) - 1) / (2 * n)
 		return apply_mutual_information_formula(entropy_x, entropy_y, entropy_xy)
+	elseif estimator == "miller_madow"
+		@warn "Miller-Madow correction cannot be applied to probabilities (sample size unknown). The calculation was performed without applying the correction."
 	end
 
 	return apply_mutual_information_formula(probabilities_xy, probabilities_x, probabilities_y, base)
 end
 
 """
-    get_conditional_mutual_information(values_x, values_y, values_z; <keyword arguments>)
+    conditional_mutual_information(values_x, values_y, values_z; <keyword arguments>)
 
 Estimate the conditional mutual information between two sets of values, conditioned on a third.
 
@@ -237,58 +253,60 @@ Estimate the conditional mutual information between two sets of values, conditio
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the mutual information of `x` and `y` conditioned on `z`.
 """
-function get_conditional_mutual_information(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
+function conditional_mutual_information(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
 	number_of_bins = 0, get_number_of_bins = get_root_n, lambda = nothing, prior = 1)
 
 	frequencies_xyz = discretize_values(values_x, values_y, values_z, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_conditional_mutual_information(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
+	return conditional_mutual_information(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
 end
 """
-    get_conditional_mutual_information(xyz; <keyword arguments>)
+    conditional_mutual_information(xyz; <keyword arguments>)
 
 # Arguments
 * `xyz`: the 3D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xyz` is probabilities. If `false`, `xyz` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the mutual information of `x` and `y` conditioned on `z`.
 """
-function get_conditional_mutual_information(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
+function conditional_mutual_information(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
 
-	probabilities_xyz = probabilities ? xyz : get_probabilities(estimator, xyz, lambda = lambda, prior = prior)
+	probabilities_xyz = probabilities ? xyz : InformationMeasures.probabilities(estimator, xyz, lambda = lambda, prior = prior)
 	probabilities_xz = sum(probabilities_xyz, dims = 2)
 	probabilities_yz = sum(probabilities_xyz, dims = 1)
-	probabilities_z = sum(probabilities_xz, dims = 1) # xz not a typo
+	probabilities_z = sum(probabilities_xz, dims = 1)
 
 	entropy_xyz = apply_entropy_formula(probabilities_xyz, base)
 	entropy_xz = apply_entropy_formula(probabilities_xz, base)
 	entropy_yz = apply_entropy_formula(probabilities_yz, base)
 	entropy_z = apply_entropy_formula(probabilities_z, base)
 
-	# TODO: either deprecate or add warning about inappropriate use
-	if estimator == "miller_madow"
-		entropy_xyz += (count(!iszero, probabilities_xyz) - 1) / (2 * length(probabilities_xyz))
-		entropy_xz += (count(!iszero, probabilities_xz) - 1) / (2 * length(probabilities_xz))
-		entropy_yz += (count(!iszero, probabilities_yz) - 1) / (2 * length(probabilities_yz))
-		entropy_z += (count(!iszero, probabilities_z) - 1) / (2 * length(probabilities_z))
+	if estimator == "miller_madow" && !probabilities
+		n = sum(xyz)
+		entropy_xyz += (count(!iszero, probabilities_xyz) - 1) / (2 * n)
+		entropy_xz += (count(!iszero, probabilities_xz) - 1) / (2 * n)
+		entropy_yz += (count(!iszero, probabilities_yz) - 1) / (2 * n)
+		entropy_z += (count(!iszero, probabilities_z) - 1) / (2 * n)
+	elseif estimator == "miller_madow"
+		@warn "Miller-Madow correction cannot be applied to probabilities (sample size unknown). The calculation was performed without applying the correction."
 	end
 
 	return apply_conditional_mutual_information_formula(entropy_xz, entropy_yz, entropy_xyz, entropy_z)
 end
 
 """
-    get_interaction_information(values_x, values_y, values_z; <keyword arguments>)
+    interaction_information(values_x, values_y, values_z; <keyword arguments>)
 
 Estimate the interaction information between three sets of values.
 
@@ -301,46 +319,46 @@ Estimate the interaction information between three sets of values.
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the interaction information between `x`, `y` and `z`.
 """
-function get_interaction_information(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
+function interaction_information(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width",
 	number_of_bins = 0, get_number_of_bins = get_root_n, lambda = nothing, prior = 1)
 
 	frequencies_xyz = discretize_values(values_x, values_y, values_z, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_interaction_information(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
+	return interaction_information(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
 end
 """
-    get_interaction_information(xyz; <keyword arguments>)
+    interaction_information(xyz; <keyword arguments>)
 
 # Arguments
 * `xyz`: the 3D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xyz` is probabilities. If `false`, `xyz` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the interaction information between `x`, `y` and `z`.
 """
-function get_interaction_information(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
+function interaction_information(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
 
-	probabilities_xyz = probabilities ? xyz : get_probabilities(estimator, xyz, lambda = lambda, prior = prior)
-	probabilities_xy = probabilities_xz = sum(probabilities_xyz, dims = 3)
+	probabilities_xyz = probabilities ? xyz : InformationMeasures.probabilities(estimator, xyz, lambda = lambda, prior = prior)
+	probabilities_xy = sum(probabilities_xyz, dims = 3)
 
-	conditional_mutual_information = get_conditional_mutual_information(probabilities_xyz, estimator = estimator, base = base, probabilities = true, lambda = lambda, prior = prior)
-	mutual_information = get_mutual_information(probabilities_xy, estimator = estimator, base = base, probabilities = true, lambda = lambda, prior = prior)
+	conditional_mi = conditional_mutual_information(probabilities_xyz, estimator = estimator, base = base, probabilities = true, lambda = lambda, prior = prior)
+	mi = mutual_information(probabilities_xy, estimator = estimator, base = base, probabilities = true, lambda = lambda, prior = prior)
 
-	return apply_interaction_information_formula(conditional_mutual_information, mutual_information)
+	return apply_interaction_information_formula(conditional_mi, mi)
 end
 
 """
-    get_total_correlation(values_x, values_y, values_z; <keyword arguments>)
+    total_correlation(values_x, values_y, values_z; <keyword arguments>)
 
 Estimate the total correlation between three sets of values.
 
@@ -353,36 +371,36 @@ Estimate the total correlation between three sets of values.
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the total correlation between `x`, `y` and `z`.
 """
-function get_total_correlation(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
+function total_correlation(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
 	get_number_of_bins = get_root_n, lambda = nothing, prior = 1)
 
 	frequencies_xyz = discretize_values(values_x, values_y, values_z, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_total_correlation(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
+	return total_correlation(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior)
 end
 """
-    get_total_correlation(xyz; <keyword arguments>)
+    total_correlation(xyz; <keyword arguments>)
 
 # Arguments
 * `xyz`: the 3D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xyz` is probabilities. If `false`, `xyz` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 
 # Returns
 Float representing the total correlation between `x`, `y` and `z`.
 """
-function get_total_correlation(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
+function total_correlation(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1)
 
-	probabilities_xyz = probabilities ? xyz : get_probabilities(estimator, xyz, lambda = lambda, prior = prior)
+	probabilities_xyz = probabilities ? xyz : InformationMeasures.probabilities(estimator, xyz, lambda = lambda, prior = prior)
 	probabilities_xy = sum(probabilities_xyz, dims = 3)
 	probabilities_x = sum(probabilities_xy, dims = 2)
 	probabilities_y = sum(probabilities_xy, dims = 1)
@@ -397,7 +415,7 @@ function get_total_correlation(xyz; estimator = "maximum_likelihood", base = 2, 
 end
 
 """
-    get_partial_information_decomposition(values_x, values_y, values_z; <keyword arguments>)
+    partial_information_decomposition(values_x, values_y, values_z; <keyword arguments>)
 
 Estimate the partial information decomposition between three sets of values.
 
@@ -408,11 +426,11 @@ Performance can be improved by setting `all_orientations`, `include_unique` and 
 * `values_y`: a second set of data values.
 * `values_z`: a third set of data values.
 * `estimator="maximum_likelihood"`: the entropy estimator.
-* `base=2`: the base of the logarithm, equqivalent to the units of information.
+* `base=2`: the base of the logarithm, equivalent to the units of information.
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 * `all_orientations=false`: whether to use each set of values as the target. If `false`, only `values_z` is the target.
 * `include_unique=true`: whether to get the unique information.
@@ -422,42 +440,42 @@ Performance can be improved by setting `all_orientations`, `include_unique` and 
 Dictionary `pid` containing the PID between `x`, `y` and `z`, where:
 
 `all_orientations = false`
-* `pid['redundancy']`: redundancy between `x`, `y` and target `z`
-* `pid['unique_1']`: unique information between `x` and target `z`
-* `pid['unique_2']`: unique information between `y` and target `z`
-* `pid['synergy']`: synergy between `x`, `y` and target `z`
+* `pid["redundancy"]`: redundancy between `x`, `y` and target `z`
+* `pid["unique_1"]`: unique information between `x` and target `z`
+* `pid["unique_2"]`: unique information between `y` and target `z`
+* `pid["synergy"]`: synergy between `x`, `y` and target `z`
 
 `all_orientations = true`
-* `pid['x']['redundancy']`: redundancy between `y`, `z` and target `x`
-* `pid['x']['unique_1']`: unique information between `y` and target `x`
-* `pid['x']['unique_2']`: unique information between `z` and target `x`
-* `pid['x']['synergy']`: synergy between `y`, `z` and target `x`
-* `pid['y']['redundancy']`: redundancy between `x`, `z` and target `y`
-* `pid['y']['unique_1']`: unique information between `x` and target `y`
-* `pid['y']['unique_2']`: unique information between `z` and target `y`
-* `pid['y']['synergy']`: synergy between `x`, `z` and target `y`
-* `pid['z']['redundancy']`: redundancy between `x`, `y` and target `z`
-* `pid['z']['unique_1']`: unique information between `x` and target `z`
-* `pid['z']['unique_2']`: unique information between `y` and target `z`
-* `pid['z']['synergy']`: synergy between `x`, `y` and target `z`
+* `pid["x"]["redundancy"]`: redundancy between `y`, `z` and target `x`
+* `pid["x"]["unique_1"]`: unique information between `y` and target `x`
+* `pid["x"]["unique_2"]`: unique information between `z` and target `x`
+* `pid["x"]["synergy"]`: synergy between `y`, `z` and target `x`
+* `pid["y"]["redundancy"]`: redundancy between `x`, `z` and target `y`
+* `pid["y"]["unique_1"]`: unique information between `x` and target `y`
+* `pid["y"]["unique_2"]`: unique information between `z` and target `y`
+* `pid["y"]["synergy"]`: synergy between `x`, `z` and target `y`
+* `pid["z"]["redundancy"]`: redundancy between `x`, `y` and target `z`
+* `pid["z"]["unique_1"]`: unique information between `x` and target `z`
+* `pid["z"]["unique_2"]`: unique information between `y` and target `z`
+* `pid["z"]["synergy"]`: synergy between `x`, `y` and target `z`
 """
-function get_partial_information_decomposition(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
+function partial_information_decomposition(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
 	get_number_of_bins = get_root_n, lambda = nothing, prior = 1, all_orientations = false, include_unique = true, include_synergy = true)
 
 	frequencies_xyz = discretize_values(values_x, values_y, values_z, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_partial_information_decomposition(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior, all_orientations = all_orientations,
+	return partial_information_decomposition(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior, all_orientations = all_orientations,
 		include_unique = include_unique, include_synergy = include_synergy)
 end
 """
-    get_partial_information_decomposition(xyz; <keyword arguments>)
+    partial_information_decomposition(xyz; <keyword arguments>)
 
 # Arguments
 * `xyz`: the 3D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xyz` is probabilities. If `false`, `xyz` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 * `all_orientations=false`: whether to use each set of values as the target. If `false`, only `values_z` is the target.
 * `include_unique=true`: whether to get the unique information.
@@ -467,36 +485,36 @@ end
 Dictionary `pid` containing the PID between `x`, `y` and `z`, where:
 
 `all_orientations = false`
-* `pid['redundancy']`: redundancy between `x`, `y` and target `z`
-* `pid['unique_1']`: unique information between `x` and target `z`
-* `pid['unique_2']`: unique information between `y` and target `z`
-* `pid['synergy']`: synergy between `x`, `y` and target `z`
+* `pid["redundancy"]`: redundancy between `x`, `y` and target `z`
+* `pid["unique_1"]`: unique information between `x` and target `z`
+* `pid["unique_2"]`: unique information between `y` and target `z`
+* `pid["synergy"]`: synergy between `x`, `y` and target `z`
 
 `all_orientations = true`
-* `pid['x']['redundancy']`: redundancy between `y`, `z` and target `x`
-* `pid['x']['unique_1']`: unique information between `y` and target `x`
-* `pid['x']['unique_2']`: unique information between `z` and target `x`
-* `pid['x']['synergy']`: synergy between `y`, `z` and target `x`
-* `pid['y']['redundancy']`: redundancy between `x`, `z` and target `y`
-* `pid['y']['unique_1']`: unique information between `x` and target `y`
-* `pid['y']['unique_2']`: unique information between `z` and target `y`
-* `pid['y']['synergy']`: synergy between `x`, `z` and target `y`
-* `pid['z']['redundancy']`: redundancy between `x`, `y` and target `z`
-* `pid['z']['unique_1']`: unique information between `x` and target `z`
-* `pid['z']['unique_2']`: unique information between `y` and target `z`
-* `pid['z']['synergy']`: synergy between `x`, `y` and target `z`
+* `pid["x"]["redundancy"]`: redundancy between `y`, `z` and target `x`
+* `pid["x"]["unique_1"]`: unique information between `y` and target `x`
+* `pid["x"]["unique_2"]`: unique information between `z` and target `x`
+* `pid["x"]["synergy"]`: synergy between `y`, `z` and target `x`
+* `pid["y"]["redundancy"]`: redundancy between `x`, `z` and target `y`
+* `pid["y"]["unique_1"]`: unique information between `x` and target `y`
+* `pid["y"]["unique_2"]`: unique information between `z` and target `y`
+* `pid["y"]["synergy"]`: synergy between `x`, `z` and target `y`
+* `pid["z"]["redundancy"]`: redundancy between `x`, `y` and target `z`
+* `pid["z"]["unique_1"]`: unique information between `x` and target `z`
+* `pid["z"]["unique_2"]`: unique information between `y` and target `z`
+* `pid["z"]["synergy"]`: synergy between `x`, `y` and target `z`
 """
-function get_partial_information_decomposition(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1, all_orientations = false,
+function partial_information_decomposition(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1, all_orientations = false,
 	include_unique = true, include_synergy = true)
 
-	probabilities_xyz = probabilities ? xyz : get_probabilities(estimator, xyz, lambda = lambda, prior = prior)
+	probabilities_xyz = probabilities ? xyz : InformationMeasures.probabilities(estimator, xyz, lambda = lambda, prior = prior)
 
 	probabilities_xz = sum(probabilities_xyz, dims = 2)
 	probabilities_yz = sum(probabilities_xyz, dims = 1)
 	probabilities_xy = sum(probabilities_xyz, dims = 3)
-	probabilities_x = sum(probabilities_xz, dims = 3)
-	probabilities_y = sum(probabilities_yz, dims = 3)
-	probabilities_z = sum(probabilities_xz, dims = 1)
+	probabilities_x = sum(sum(probabilities_xyz, dims = 2), dims = 3)
+	probabilities_y = sum(sum(probabilities_xyz, dims = 1), dims = 3)
+	probabilities_z = sum(sum(probabilities_xyz, dims = 1), dims = 2)
 
 	# Needed for unique information and synergy
 	if include_unique || include_synergy
@@ -589,7 +607,7 @@ function get_partial_information_decomposition(xyz; estimator = "maximum_likelih
 end
 
 """
-    get_redundancy(values_x, values_y, values_z; <keyword arguments>)
+    redundancy(values_x, values_y, values_z; <keyword arguments>)
 
 Estimate the redundancy between three sets of values.
 
@@ -598,48 +616,48 @@ Estimate the redundancy between three sets of values.
 * `values_y`: a second set of data values.
 * `values_z`: a third set of data values.
 * `estimator="maximum_likelihood"`: the entropy estimator.
-* `base=2`: the base of the logarithm, equqivalent to the units of information.
+* `base=2`: the base of the logarithm, equivalent to the units of information.
 * `mode="uniform_width"`: the discretization algorithm.
 * `number_of_bins=0`: the number of bins (will be overridden if `mode` is `"bayesian_blocks"`).
 * `get_number_of_bins=get_root_n`: the method for calculating the number of bins (only called if `number_of_bins` is `0`).
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 * `all_orientations=false`: whether to use each set of values as the target. If `false`, only `values_z` is the target.
 
 # Returns
 Float representing the redundancy between `x`, `y` and target `z`.
 """
-function get_redundancy(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
+function redundancy(values_x, values_y, values_z; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0,
 	get_number_of_bins = get_root_n, lambda = nothing, prior = 1, all_orientations = false)
 
 	frequencies_xyz = discretize_values(values_x, values_y, values_z, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-	return get_redundancy(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior, all_orientations = all_orientations)
+	return redundancy(frequencies_xyz; estimator = estimator, base = base, lambda = lambda, prior = prior, all_orientations = all_orientations)
 end
 """
-    get_redundancy(xyz; <keyword arguments>)
+    redundancy(xyz; <keyword arguments>)
 
 # Arguments
 * `xyz`: the 3D frequencies or probabilities.
 * `estimator="maximum_likelihood"`: the entropy estimator.
 * `base=2`: the base of the logarithm, equivalent to the units of information.
 * `probabilities=false`: whether `xyz` is probabilities. If `false`, `xyz` is frequencies.
-* `lambda=nothing`: the shrinkage instensity, only used if `estimator` is `"shrinkage"`.
+* `lambda=nothing`: the shrinkage intensity, only used if `estimator` is `"shrinkage"`.
 * `prior=1`: the Dirichlet prior, only used if `estimator` is `"dirichlet"`.
 * `all_orientations=false`: whether to use each set of values as the target. If `false`, only `values_z` is the target.
 
 # Returns
 Float representing the redundancy between `x`, `y` and target `z`.
 """
-function get_redundancy(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1, all_orientations = false)
-	probabilities_xyz = probabilities ? xyz : get_probabilities(estimator, xyz, lambda = lambda, prior = prior)
+function redundancy(xyz; estimator = "maximum_likelihood", base = 2, probabilities = false, lambda = nothing, prior = 1, all_orientations = false)
+	probabilities_xyz = probabilities ? xyz : InformationMeasures.probabilities(estimator, xyz, lambda = lambda, prior = prior)
 
 	probabilities_xz = sum(probabilities_xyz, dims = 2)
 	probabilities_yz = sum(probabilities_xyz, dims = 1)
 	probabilities_xy = sum(probabilities_xyz, dims = 3)
-	probabilities_x = sum(probabilities_xz, dims = 3)
-	probabilities_y = sum(probabilities_yz, dims = 3)
-	probabilities_z = sum(probabilities_xz, dims = 1)
+	probabilities_x = sum(sum(probabilities_xyz, dims = 2), dims = 3)
+	probabilities_y = sum(sum(probabilities_xyz, dims = 1), dims = 3)
+	probabilities_z = sum(sum(probabilities_xyz, dims = 1), dims = 2)
 
 	if all_orientations
 		redundancy_xy_z = apply_redundancy_formula(probabilities_xz, probabilities_yz, probabilities_x, probabilities_y, probabilities_z, (1, 2), base)
@@ -652,9 +670,8 @@ function get_redundancy(xyz; estimator = "maximum_likelihood", base = 2, probabi
 	end
 end
 
-
 """
-    get_cross_entropy(values_x, values_y; <keyword arguments>)
+    cross_entropy(values_x, values_y; <keyword arguments>)
 Estimate the cross-entropy between two sets of values.
 # Arguments
 * `values_x`: the first set of data values.
@@ -671,19 +688,70 @@ Estimate the cross-entropy between two sets of values.
 # Returns
 Float representing the cross entropy between `x` and `y`.
 """
-function get_cross_entropy(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0, get_number_of_bins = get_root_n, discretized = false, lambda = nothing, prior = 1)
+function cross_entropy(values_x, values_y; estimator = "maximum_likelihood", base = 2, mode = "uniform_width", number_of_bins = 0, get_number_of_bins = get_root_n, discretized = false, lambda = nothing, prior = 1)
     frequency_x = discretized ? values_x : discretize_values(values_x, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
     frequency_y = discretized ? values_y : discretize_values(values_y, mode = mode, number_of_bins = number_of_bins, get_number_of_bins = get_number_of_bins)
 
-    probability_x = get_probabilities(estimator, frequency_x, lambda = lambda, prior = prior)
-    probability_y = get_probabilities(estimator, frequency_y, lambda = lambda, prior = prior)
+    probability_x = InformationMeasures.probabilities(estimator, frequency_x, lambda = lambda, prior = prior)
+    probability_y = InformationMeasures.probabilities(estimator, frequency_y, lambda = lambda, prior = prior)
 
-    cross_entropy = apply_cross_entropy_formula(probability_x, probability_y, base)
+    estimated_cross_entropy = apply_cross_entropy_formula(probability_x, probability_y, base)
 
     if estimator == "miller_madow"
-        println("WARNING: Miller-Madow correction not implemented for the cross-entropy. ")
-        println("The calculation was performed without applying the correction.")
+		@warn "Miller-Madow correction not implemented for the cross-entropy. The calculation was performed without applying the correction."
     end
 
-    return cross_entropy
+    return estimated_cross_entropy
+end
+
+# Deprecated aliases, to be removed in a future release.
+
+function get_probabilities(args...; kwargs...)
+	Base.depwarn("`get_probabilities` is deprecated, use `probabilities` instead.", :get_probabilities)
+	return probabilities(args...; kwargs...)
+end
+
+function get_entropy(args...; kwargs...)
+	Base.depwarn("`get_entropy` is deprecated, use `entropy` instead.", :get_entropy)
+	return entropy(args...; kwargs...)
+end
+
+function get_conditional_entropy(args...; kwargs...)
+	Base.depwarn("`get_conditional_entropy` is deprecated, use `conditional_entropy` instead. Note also that in previous versions the conditional entropy was calculated with the variables swapped, i.e. `get_conditional_entropy(x, y)` returned the entropy of `y` conditioned on `x`.", :get_conditional_entropy)
+	return conditional_entropy(args...; kwargs...)
+end
+
+function get_mutual_information(args...; kwargs...)
+	Base.depwarn("`get_mutual_information` is deprecated, use `mutual_information` instead.", :get_mutual_information)
+	return mutual_information(args...; kwargs...)
+end
+
+function get_conditional_mutual_information(args...; kwargs...)
+	Base.depwarn("`get_conditional_mutual_information` is deprecated, use `conditional_mutual_information` instead.", :get_conditional_mutual_information)
+	return conditional_mutual_information(args...; kwargs...)
+end
+
+function get_interaction_information(args...; kwargs...)
+	Base.depwarn("`get_interaction_information` is deprecated, use `interaction_information` instead.", :get_interaction_information)
+	return interaction_information(args...; kwargs...)
+end
+
+function get_total_correlation(args...; kwargs...)
+	Base.depwarn("`get_total_correlation` is deprecated, use `total_correlation` instead.", :get_total_correlation)
+	return total_correlation(args...; kwargs...)
+end
+
+function get_partial_information_decomposition(args...; kwargs...)
+	Base.depwarn("`get_partial_information_decomposition` is deprecated, use `partial_information_decomposition` instead.", :get_partial_information_decomposition)
+	return partial_information_decomposition(args...; kwargs...)
+end
+
+function get_redundancy(args...; kwargs...)
+	Base.depwarn("`get_redundancy` is deprecated, use `redundancy` instead.", :get_redundancy)
+	return redundancy(args...; kwargs...)
+end
+
+function get_cross_entropy(args...; kwargs...)
+	Base.depwarn("`get_cross_entropy` is deprecated, use `cross_entropy` instead.", :get_cross_entropy)
+	return cross_entropy(args...; kwargs...)
 end

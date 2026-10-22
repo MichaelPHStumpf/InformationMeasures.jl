@@ -7,6 +7,16 @@
 
 `Pkg.add("InformationMeasures")`
 
+## Upgrading to v0.4
+
+Version 0.4 is a breaking release:
+
+* The `get_` prefix has been dropped from all measure functions (issue #9): use `entropy`, `mutual_information`, `conditional_entropy`, etc. The old `get_*` names still work but emit deprecation warnings and will be removed in a future release.
+* The direction of `conditional_entropy(x, y)` has been fixed: it now correctly returns H(x|y). In previous versions it returned H(y|x) (issue #35).
+* The Miller-Madow bias correction now uses the sample count in the denominator, as defined, rather than the number of bins.
+* Unknown estimators and discretization modes now throw an `ArgumentError` instead of silently falling back.
+* When discretization algorithms (`uniform_count`, `bayesian_blocks`) fail, the code now warns and falls back to `uniform_width` without corrupting the bin assignment.
+
 ## Performance
 
 In cases where optimal performance is needed, the latest version of InformationMeasures is recommended, with Julia 1.0 or later. See also [Advanced usage](#advanced-usage).
@@ -25,27 +35,27 @@ data_2 = rand(100)
 data_3 = rand(100)
 
 # Entropy
-ent_1 = get_entropy(data_1)
-ent_12 = get_entropy(data_1, data_2)
-ent_123 = get_entropy(data_1, data_2, data_3)
+ent_1 = entropy(data_1)
+ent_12 = entropy(data_1, data_2)
+ent_123 = entropy(data_1, data_2, data_3)
 
 # Conditional entropy
-ce_1_on_2 = get_conditional_entropy(data_1, data_2)
+ce_1_on_2 = conditional_entropy(data_1, data_2)
 
 # Mutual information
-mi_12 = get_mutual_information(data_1, data_2)
+mi_12 = mutual_information(data_1, data_2)
 
 # Conditional mutual information
-cmi_12_on_3 = get_conditional_mutual_information(data_1, data_2, data_3)
+cmi_12_on_3 = conditional_mutual_information(data_1, data_2, data_3)
 
 # Interaction information
-ii_123 = get_interaction_information(data_1, data_2, data_3)
+ii_123 = interaction_information(data_1, data_2, data_3)
 
 # Total correlation
-tc_123 = get_total_correlation(data_1, data_2, data_3)
+tc_123 = total_correlation(data_1, data_2, data_3)
 
 # Partial information decomposition
-pid_123 = get_partial_information_decomposition(data_1, data_2, data_3)
+pid_123 = partial_information_decomposition(data_1, data_2, data_3)
 ```
 
 ## Config options
@@ -84,7 +94,7 @@ The following keyword arguments can be passed in to each function:
 
 The information measures can be calculated from raw data values, frequencies (if the data has already been discretized), or probabilities (if the probabilities are already known or have already been estimated).
 
-To calculate entropy from frequencies, call `get_entropy` with the keyword argument `discretized = true`
+To calculate entropy from frequencies, call `entropy` with the keyword argument `discretized = true`
 
 For all other information measures, simply pass in a single array of frequencies or probabilities (2D for conditional entropy and mutual information or 3D for conditional mutual information, mutual information and total correlation). If they are probabilities, include the keyword argument `probabilities = true`, otherwise they will be treated as frequencies.
 
@@ -101,11 +111,11 @@ NB `discretize_values` returns the frequencies for each bin in order, rather tha
 
 ## Advanced usage
 
-Functions such as `get_entropy` and `get_mutual_information` are designed to be flexible and easy to use with different types of input and config options. In some cases it may be quicker to bypass these functions.
+Functions such as `entropy` and `mutual_information` are designed to be flexible and easy to use with different types of input and config options. In some cases it may be quicker to bypass these functions.
 
 ### Example
 
-When calculating the mutual information between every pair of data vectors from a large dataset, simply calling `get_mutual_information` on each pair of vectors will result in each vector being discretized multiple times.
+When calculating the mutual information between every pair of data vectors from a large dataset, simply calling `mutual_information` on each pair of vectors will result in each vector being discretized multiple times.
 
 Currently, discretization for multiple variables works by discretizing the marginals independently, then reconstructing the higher dimensional frequencies from these discretized marginals. Therefore discretizing each variable once in advance will not affect the results, but will be much quicker. Joint frequencies cannot be reconstructed from the bin frequencies; instead the discretized values should be stored. `get_bin_ids!` should therefore be used, instead of `discretize_values`:
 
@@ -127,11 +137,11 @@ bin_ids_3 = zeros(Int, length(data_3))
 get_bin_ids!(data_3, "uniform_width", number_of_bins, bin_ids_3)
 
 f_12 = get_frequencies_from_bin_ids(bin_ids_1, bin_ids_2, number_of_bins, number_of_bins)
-p_12 = get_probabilities("maximum_likelihood", f_12)
+p_12 = probabilities("maximum_likelihood", f_12)
 mi_12 = apply_mutual_information_formula(p_12, sum(p_12, dims = 2), sum(p_12, dims = 1), mi_base)
 
 f_13 = get_frequencies_from_bin_ids(bin_ids_1, bin_ids_3, number_of_bins, number_of_bins)
-p_13 = get_probabilities("maximum_likelihood", f_13)
+p_13 = probabilities("maximum_likelihood", f_13)
 mi_13 = apply_mutual_information_formula(p_13, sum(p_13, dims = 2), sum(p_13, dims = 1), mi_base)
 
 # And so on...
@@ -159,7 +169,7 @@ function mi_quick(data; discretizer = "uniform_width", estimator = "maximum_like
 	index = 1
 	for i in 1 : nvars, j in i+1 : nvars
 		f = get_frequencies_from_bin_ids(bin_ids[1:end, i:i], bin_ids[1:end, j:j], nbins, nbins)
-		p = get_probabilities(estimator, f)
+		p = probabilities(estimator, f)
 		mis[index] = apply_mutual_information_formula(p, sum(p, dims = 1), sum(p, dims = 2), mi_base)
 		index += 1
 	end
@@ -174,7 +184,7 @@ function mi_easy(data; discretizer = "uniform_width", estimator = "maximum_likel
 
 	index = 1
 	for i in 1 : nvars, j in i+1 : nvars
-		mis[index] = get_mutual_information(data[1:nvals, i:i], data[1:nvals, j:j]; mode = discretizer, estimator = estimator, base = mi_base)
+		mis[index] = mutual_information(data[1:nvals, i:i], data[1:nvals, j:j]; mode = discretizer, estimator = estimator, base = mi_base)
 		index += 1
 	end
 
